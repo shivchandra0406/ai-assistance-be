@@ -1,0 +1,13 @@
+flask==2.2.5
+flask-sqlalchemy==3.0.2
+flask-migrate==4.0.4
+python-dotenv==1.0.0
+pyodbc==5.0.1
+marshmallow==3.19.0
+werkzeug==2.2.3
+langchain==0.1.11
+sentence-transformers==2.5.1
+openai==1.14.1
+faiss-cpu==1.7.4
+pandas==2.2.1
+sqlalchemy==2.0.40
