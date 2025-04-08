@@ -58,6 +58,7 @@ def build_query():
     
     try:
         builder = QueryBuilder()
+        print("builder")
         result = builder.build_query(data['query'])
         return jsonify({
             'result': result,
