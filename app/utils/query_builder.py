@@ -7,6 +7,7 @@ from app.utils.schema_extractor import SchemaExtractor
 import json
 import re
 from dotenv import load_dotenv
+from sqlalchemy import text
 
 # Load environment variables
 load_dotenv()
@@ -121,7 +122,8 @@ class QueryBuilder:
             print("Schema context length:", len(schema_context))
             
             # Create the prompt
-            prompt = f"""You are an expert SQL Server query builder. Your task is to generate a SQL query based on the user's request and the provided database schema.
+            prompt = f"""
+            You are a responsible and safe SQL Server query builder. Your task is to generate a SQL query based on the user's request and the provided database schema.
 
             Database Schema:
             {schema_context}
@@ -130,23 +132,30 @@ class QueryBuilder:
             {user_query}
 
             Guidelines:
-            1. Use only the tables and columns listed in the schema above.
-            2. Use SQL Server syntax (T-SQL) for all queries.
-            3. Optimize the query for performance and clarity.
-            4. Use proper JOINs (INNER JOIN, LEFT JOIN, etc.) when multiple tables are involved.
-            5. Include WHERE clauses to filter data accurately.
-            6. Use IS NULL / IS NOT NULL to handle NULL values.
-            7. Use aliases (e.g., `u` for `users`) for better readability.
-            8. Add ORDER BY clauses when relevant.
-            9. Use `GETDATE()` or `CAST(... AS DATE)` for date-related filters.
-            10. Avoid using unsupported SQL constructs for SQL Server.
+            1. DO NOT generate queries that DELETE, DROP, TRUNCATE, or UPDATE any data. If the user asks for such operations (even indirectly using words like "remove", "erase", "clean", etc.), respond with a human-friendly explanation: "For safety reasons, destructive or data modification actions are not supported by this assistant."
+            2. DO NOT return even SELECT queries if the user's intent is clearly to perform a deletion or update — instead return a helpful warning message only.
+            3. Reject and respond politely if the request is unrelated to SQL, contains jokes, personal questions, or non-database topics (e.g., "tell me a joke", "how are you?", "what's the weather?").
+            4. Use only the tables and columns listed in the schema above.
+            5. Use SQL Server syntax (T-SQL) for all queries.
+            6. Optimize the query for performance and clarity.
+            7. Use proper JOINs (INNER JOIN, LEFT JOIN, etc.) when multiple tables are involved.
+            8. Include WHERE clauses to filter data accurately.
+            9. Use IS NULL / IS NOT NULL to handle NULL values.
+            10. Use aliases (e.g., `u` for `users`) for better readability.
+            11. Add ORDER BY clauses when relevant.
+            12. Use GETDATE(), CONVERT(), or CAST(... AS DATE) for date/time filtering.
+            13. If the user asks for a "report", generate a SELECT query that returns all relevant data with proper sorting.
+            14. For report queries, include pagination using OFFSET-FETCH to return 50 rows at a time. Assume default values: `page = 1`, `page_size = 50`, unless specified otherwise.
+            15. If you are unsure what the user means, or the question is too vague, respond with a friendly explanation asking for more details.
+            16. Always respond strictly in the following JSON format and nothing else:
 
-            Return your response **strictly in the following JSON format**, without any extra commentary:
             {{
-            "sql_query": "...",
-            "explanation": "...",
-            "required_parameters": []
-            }}"""
+                "sql_query": "...",
+                "explanation": "...",
+                "required_parameters": []
+            }}
+            """
+
             print("Prompt:", prompt)
 
             print("Sending request to Gemini...")
@@ -186,16 +195,19 @@ class QueryBuilder:
     
     def execute_query(self, query: str, parameters: Optional[Dict] = None) -> List[Dict]:
         """Execute the SQL query and return results."""
+        print("Executing query:", query)
+        print("Parameters:", parameters)
         try:
             with self.schema_extractor.engine.connect() as conn:
                 if parameters:
-                    result = conn.execute(query, parameters)
+                    result = conn.execute(text(query), parameters)
                 else:
-                    result = conn.execute(query)
+                    result = conn.execute(text(query))
                 
                 # Convert result to list of dictionaries
                 columns = result.keys()
                 return [dict(zip(columns, row)) for row in result.fetchall()]
         except Exception as e:
             print("Error executing query:", str(e))
+            print("Error type:", type(e))
             return []
