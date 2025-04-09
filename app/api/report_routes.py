@@ -29,7 +29,7 @@ def analyze_report_request():
 
         # Analyze request
         result = scheduler.analyze_request(data)
-
+        print("Result:", result)
         if result.get('success', False):
             # Request was processed successfully
             if result.get('requires_scheduling', False):
@@ -44,11 +44,9 @@ def analyze_report_request():
                 )
             else:
                 return ResponseHandler.success(
-                    data={
-                        'explanation': result.get('explanation', 'Report processed'),
-                        'message': result.get('message', 'Report executed successfully')
-                    },
-                    message="Report has been processed successfully"
+                    data= result.get('data', []),
+                    message= result.get('explanation', 'Report processed successfully'),
+                    type=result.get('type', 'text')
                 )
         else:
             # There was an error

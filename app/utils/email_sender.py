@@ -39,16 +39,42 @@ class EmailSender:
             msg['To'] = to_email
             msg['Subject'] = 'Your Requested Report'
 
-            # Add body
             body = """
-            Hello,
+                <html>
+                <head>
+                <style>
+                    body {
+                    font-family: Arial, sans-serif;
+                    font-size: 14px;
+                    color: #333333;
+                    }
+                    .container {
+                    padding: 20px;
+                    }
+                    .footer {
+                    margin-top: 30px;
+                    font-size: 12px;
+                    color: #888888;
+                    }
+                </style>
+                </head>
+                <body>
+                <div class="container">
+                    <p>Hello,</p>
 
-            Please find attached your requested report.
+                    <p>Please find the attached Excel report you requested.</p>
 
-            Best regards,
-            AI Report Assistant
-            """
-            msg.attach(MIMEText(body, 'plain'))
+                    <p>Best regards,<br>
+                    <strong>AI Report Assistant</strong></p>
+
+                    <div class="footer">
+                    This is an automated email — please do not reply directly.
+                    </div>
+                </div>
+                </body>
+                </html>
+                """
+            msg.attach(MIMEText(body, 'html'))
 
             # Create Excel attachment
             excel_data = self.create_excel_attachment(results)

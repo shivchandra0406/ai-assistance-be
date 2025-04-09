@@ -1,9 +1,11 @@
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import google.generativeai as genai
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from app.utils.schema_extractor import SchemaExtractor
+from app.utils.prompt_manager import PromptManager
+from app.utils.timeout_utils import execute_with_timeout
 import json
 import re
 from dotenv import load_dotenv
@@ -121,53 +123,12 @@ class QueryBuilder:
             ])
             print("Schema context length:", len(schema_context))
             
-            # Create the prompt
-            prompt = f"""
-            You are a responsible and safe SQL Server query builder. Your task is to generate a SQL query based on the user's request and the provided database schema.
-
-            Database Schema:
-            {schema_context}
-
-            User Request:
-            {user_query}
-
-            Guidelines:
-            1. DO NOT generate queries that DELETE, DROP, TRUNCATE, or UPDATE any data. If the user asks for such operations (even indirectly using words like "remove", "erase", "clean", etc.), respond with a human-friendly explanation: "For safety reasons, destructive or data modification actions are not supported by this assistant."
-            2. DO NOT return even SELECT queries if the user's intent is clearly to perform a deletion or update — instead return a helpful warning message only.
-            3. Reject and respond politely if the request is unrelated to SQL, contains jokes, personal questions, or non-database topics (e.g., "tell me a joke", "how are you?", "what's the weather?").
-            4. Use only the tables and columns listed in the schema above.
-            5. Use SQL Server syntax (T-SQL) for all queries.
-            6. Optimize the query for performance and clarity.
-            7. If the request involves data from different tables, use proper JOINs:
-                - Use **INNER JOIN** when data must exist in both tables to match.
-                - Use **LEFT JOIN** when you want to include all rows from the primary table and optionally matching rows from the other.
-                - Join conditions must be accurate and based on related keys (e.g., `user_id`, `project_id`).
-            8. Include WHERE clauses to filter data accurately.
-            9. Use IS NULL / IS NOT NULL to handle NULL values.
-            10. Use aliases (e.g., `u` for `users`) for better readability.
-            11. Add ORDER BY clauses when relevant.
-            12. Use GETDATE(), CONVERT(), or CAST(... AS DATE) for date/time filtering.
-            13. If the user asks for a "report", generate a SELECT query that returns all relevant data with proper sorting.
-            14. For report queries, include pagination using OFFSET-FETCH to return 50 rows at a time. Assume default values: `page = 1`, `page_size = 50`, unless specified otherwise.
-            15. If the user specifies a specific time in the future for delivery (e.g., "at 10 PM", "tomorrow", "every Friday"), and also includes a time filter for the data (e.g., "yesterday", "last 7 days"), treat the query as a **scheduled report**, and:
-                - Use only the date/time filters for the data (not the scheduled time).
-                - Return a schedule object that includes when to run the query (but do not include this in the WHERE clause).
-            16. If you are unsure what the user means, or the question is too vague, respond with a friendly explanation asking for more details.
-            17. Always respond strictly in the following JSON format and nothing else:
-18. If the user requests a report or data related to a concept (like "sales") that is not in the schema, do not generate any SQL. Instead, respond with a helpful explanation and set `"sql_query"` to null.
-
-            {{
-                "sql_query": "...",
-                "explanation": "...",
-                "required_parameters": []
-            }}
-            """
-
-            print("Prompt:", prompt)
-
+            # Get the prompt from PromptManager
+            prompt = PromptManager.get_query_generation_prompt(schema_context)
+            
             print("Sending request to Gemini...")
             # Generate the response using Gemini
-            response = self.model.generate_content(prompt)
+            response = self.model.generate_content(prompt + f"\nUser Request: {user_query}")
             print("Got response from Gemini")
             
             if not response.text:
@@ -199,6 +160,25 @@ class QueryBuilder:
             'explanation': result.get('explanation', "Could not explain due to error."),
             'required_parameters': result.get('required_parameters', [])
         }
+    
+    def handle_error(self, error_message: str, query: str = None) -> Dict:
+        """Handle SQL errors"""
+        try:
+            # Get the prompt from PromptManager
+            prompt = PromptManager.get_error_analysis_prompt(error_message, query)
+            
+            # Generate analysis
+            response = self.model.generate_content(prompt)
+            return eval(response.text)
+            
+        except Exception as e:
+            print(f"Error analyzing SQL error: {str(e)}")
+            return {
+                "error_type": "Unknown",
+                "explanation": str(e),
+                "solution": "Could not analyze error",
+                "corrected_query": query
+            }
     
     def execute_query(self, query, parameters=None):
         """Execute the SQL query and return results"""
@@ -246,3 +226,31 @@ class QueryBuilder:
                 'message': f'Error executing query: {str(e)}',
                 'rows_affected': 0
             }
+    
+    def execute_query_with_timeout(self, query: str, parameters: dict = None, timeout_seconds: int = 30) -> Tuple[list, bool]:
+        """Execute a query with timeout
+        
+        Args:
+            query: SQL query to execute
+            parameters: Optional query parameters
+            timeout_seconds: Timeout in seconds (default: 30)
+            
+        Returns:
+            Tuple[list, bool]: (results, timed_out)
+                - results: Query results or None if timed out
+                - timed_out: True if query timed out, False otherwise
+        """
+        try:
+            # Use execute_with_timeout from timeout_utils
+            result, timed_out = execute_with_timeout(
+                self.execute_query,
+                timeout_seconds,
+                query,
+                parameters
+            )
+            print("Query executed with timeout:", result, timed_out)
+            return result, timed_out
+            
+        except Exception as e:
+            print(f"Error executing query with timeout: {str(e)}")
+            raise
