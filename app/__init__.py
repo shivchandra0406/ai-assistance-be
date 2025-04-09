@@ -5,6 +5,7 @@ from flask_cors import CORS
 from app.config import Config
 from app.api.schema_routes import schema_bp as schema_routes
 from app.api.auth_routes import auth_bp
+from app.api.report_routes import report_bp
 from app.websockets.socket_manager import init_socketio
 import os
 
@@ -44,6 +45,7 @@ def create_app(config_class=Config):
     app.register_blueprint(api, url_prefix='/api')
     app.register_blueprint(schema_routes, url_prefix='/api/schema')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(report_bp, url_prefix='/api/report')
     app.register_blueprint(bulk_routes)
     
     @app.route('/health')
