@@ -71,8 +71,8 @@ class QueryBuilder:
             # print("Documents:", documents)
             texts = [doc['content'] for doc in documents]
             metadata = [doc['schema_metadata'] for doc in documents]
-            print("Texts:", texts)
-            print("Metadata:", metadata)
+            # print("Texts:", texts)
+            # print("Metadata:", metadata)
             
             # Create FAISS vector store
             self.vector_store = FAISS.from_texts(
@@ -193,21 +193,49 @@ class QueryBuilder:
             'required_parameters': result.get('required_parameters', [])
         }
     
-    def execute_query(self, query: str, parameters: Optional[Dict] = None) -> List[Dict]:
-        """Execute the SQL query and return results."""
-        print("Executing query:", query)
-        print("Parameters:", parameters)
+    def execute_query(self, query, parameters=None):
+        """Execute the SQL query and return results"""
         try:
             with self.schema_extractor.engine.connect() as conn:
+                # Execute the query
                 if parameters:
                     result = conn.execute(text(query), parameters)
                 else:
                     result = conn.execute(text(query))
                 
-                # Convert result to list of dictionaries
-                columns = result.keys()
-                return [dict(zip(columns, row)) for row in result.fetchall()]
+                # Check if it's a SELECT query
+                is_select = query.strip().upper().startswith('SELECT')
+                
+                if is_select:
+                    # For SELECT queries, return the rows as list of dicts
+                    try:
+                        columns = result.keys()
+                        return [dict(zip(columns, row)) for row in result.fetchall()]
+                    except Exception as e:
+                        print("Error fetching SELECT results:", str(e))
+                        return []
+                else:
+                    # For INSERT/UPDATE/DELETE queries
+                    try:
+                        conn.commit()  # Commit the transaction
+                        return {
+                            'success': True,
+                            'message': f'Query executed successfully. Rows affected: {result.rowcount}',
+                            'rows_affected': result.rowcount
+                        }
+                    except Exception as e:
+                        print("Error in non-SELECT query:", str(e))
+                        return {
+                            'success': False,
+                            'message': f'Error in query: {str(e)}',
+                            'rows_affected': 0
+                        }
+                    
         except Exception as e:
             print("Error executing query:", str(e))
             print("Error type:", type(e))
-            return []
+            return {
+                'success': False,
+                'message': f'Error executing query: {str(e)}',
+                'rows_affected': 0
+            }

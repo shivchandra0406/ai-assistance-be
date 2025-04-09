@@ -7,6 +7,9 @@ from io import BytesIO
 import base64
 from datetime import datetime
 import os
+from app.websockets.socket_manager import start_background_task
+from app.utils.timeout_utils import execute_with_timeout
+import uuid
 
 schema_bp = Blueprint('schema', __name__)
 
@@ -70,31 +73,67 @@ def build_query():
         query_result = builder.build_query(data['query'])
         print("query_result", query_result)
         if query_result.get('sql_query'):
-            execution_result = builder.execute_query(query_result['sql_query'], None)
-            if len(execution_result) < 11:
-                return ResponseHandler.success(
-                    data=execution_result,
-                    type="text",
-                    message="Query built successfully"
+            # Try to execute query with 30-second timeout
+            result, timed_out = execute_with_timeout(
+                builder.execute_query,
+                timeout_seconds=30,
+                query=query_result['sql_query'],
+                parameters=None
+            )
+            
+            if timed_out:
+                # Query is taking too long, move to background processing
+                room_id = str(uuid.uuid4())
+                start_background_task(
+                    builder=builder,
+                    query=query_result['sql_query'],
+                    parameters=None,
+                    room=room_id
                 )
-            else:
-                # Convert to DataFrame and then to Excel
-                df = pd.DataFrame(execution_result)
-                excel_buffer = BytesIO()
-                df.to_excel(excel_buffer, index=False, engine='openpyxl')
-                excel_buffer.seek(0)
-                
-                # Convert to base64
-                excel_base64 = base64.b64encode(excel_buffer.getvalue()).decode('utf-8')
-                
                 return ResponseHandler.success(
                     data={
-                        "excel_data": excel_base64,
-                        "filename": f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                        "row_count": len(execution_result)
+                        "room_id": room_id,
+                        "status": "processing",
+                        "message": "Query is taking longer than 30 seconds, moved to background processing"
                     },
-                    type="excel",
-                    message=f"Generated Excel data with {len(execution_result)} rows"
+                    type="background_process",
+                    message="Query moved to background processing. Listen for updates on the WebSocket."
+                )
+            
+            # Query completed within timeout
+            if result:
+                if len(result) > 10:
+                    # Convert to DataFrame and then to Excel for large results
+                    df = pd.DataFrame(result)
+                    excel_buffer = BytesIO()
+                    df.to_excel(excel_buffer, index=False, engine='openpyxl')
+                    excel_buffer.seek(0)
+                    
+                    # Convert to base64
+                    excel_base64 = base64.b64encode(excel_buffer.getvalue()).decode('utf-8')
+                    
+                    return ResponseHandler.success(
+                        data={
+                            "excel_data": excel_base64,
+                            "filename": f"query_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                            "row_count": len(result)
+                        },
+                        type="excel",
+                        message=f"Query returned {len(result)} rows"
+                    )
+                else:
+                    # Return raw data for small results
+                    return ResponseHandler.success(
+                        data=result,
+                        type="text",
+                        message=f"Query returned {len(result)} rows"
+                    )
+            else:
+                # Query returned no results
+                return ResponseHandler.success(
+                    data=[],
+                    type="text",
+                    message="Query returned no results"
                 )
         else:
             required_params = query_result.get('required_parameters', [])
