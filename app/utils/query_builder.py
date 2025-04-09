@@ -138,7 +138,10 @@ class QueryBuilder:
             4. Use only the tables and columns listed in the schema above.
             5. Use SQL Server syntax (T-SQL) for all queries.
             6. Optimize the query for performance and clarity.
-            7. Use proper JOINs (INNER JOIN, LEFT JOIN, etc.) when multiple tables are involved.
+            7. If the request involves data from different tables, use proper JOINs:
+                - Use **INNER JOIN** when data must exist in both tables to match.
+                - Use **LEFT JOIN** when you want to include all rows from the primary table and optionally matching rows from the other.
+                - Join conditions must be accurate and based on related keys (e.g., `user_id`, `project_id`).
             8. Include WHERE clauses to filter data accurately.
             9. Use IS NULL / IS NOT NULL to handle NULL values.
             10. Use aliases (e.g., `u` for `users`) for better readability.
@@ -146,8 +149,12 @@ class QueryBuilder:
             12. Use GETDATE(), CONVERT(), or CAST(... AS DATE) for date/time filtering.
             13. If the user asks for a "report", generate a SELECT query that returns all relevant data with proper sorting.
             14. For report queries, include pagination using OFFSET-FETCH to return 50 rows at a time. Assume default values: `page = 1`, `page_size = 50`, unless specified otherwise.
-            15. If you are unsure what the user means, or the question is too vague, respond with a friendly explanation asking for more details.
-            16. Always respond strictly in the following JSON format and nothing else:
+            15. If the user specifies a specific time in the future for delivery (e.g., "at 10 PM", "tomorrow", "every Friday"), and also includes a time filter for the data (e.g., "yesterday", "last 7 days"), treat the query as a **scheduled report**, and:
+                - Use only the date/time filters for the data (not the scheduled time).
+                - Return a schedule object that includes when to run the query (but do not include this in the WHERE clause).
+            16. If you are unsure what the user means, or the question is too vague, respond with a friendly explanation asking for more details.
+            17. Always respond strictly in the following JSON format and nothing else:
+18. If the user requests a report or data related to a concept (like "sales") that is not in the schema, do not generate any SQL. Instead, respond with a helpful explanation and set `"sql_query"` to null.
 
             {{
                 "sql_query": "...",
